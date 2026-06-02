@@ -91,4 +91,53 @@ class SessionStorage {
       debugPrint('Error clearing active session: $e');
     }
   }
+
+  // Export all sessions as a JSON formatted string
+  static Future<String> exportToJsonString() async {
+    final sessions = await loadSessions();
+    final jsonList = sessions.map((s) => s.toJson()).toList();
+    return const JsonEncoder.withIndent('  ').convert(jsonList);
+  }
+
+  // Merge current sessions list with an incoming list, preventing duplicates by unique session ID
+  static List<StudySession> mergeSessions(List<StudySession> current, List<StudySession> incoming) {
+    final Map<String, StudySession> mergedMap = {};
+    for (var s in current) {
+      mergedMap[s.id] = s;
+    }
+    for (var s in incoming) {
+      mergedMap[s.id] = s;
+    }
+    final mergedList = mergedMap.values.toList();
+    mergedList.sort((a, b) => b.startTime.compareTo(a.startTime));
+    return mergedList;
+  }
+
+  // Load saved theme preference (defaulting to light, i.e., false)
+  static Future<bool> loadDarkModePreference() async {
+    try {
+      if (kIsWeb) return false;
+      final file = await _getFile('settings.json');
+      if (await file.exists()) {
+        final contents = await file.readAsString();
+        final data = jsonDecode(contents);
+        return data['isDarkMode'] as bool? ?? false;
+      }
+    } catch (e) {
+      debugPrint('Error loading theme preference: $e');
+    }
+    return false;
+  }
+
+  // Save theme preference
+  static Future<void> saveDarkModePreference(bool isDarkMode) async {
+    try {
+      if (kIsWeb) return;
+      final file = await _getFile('settings.json');
+      final data = {'isDarkMode': isDarkMode};
+      await file.writeAsString(jsonEncode(data));
+    } catch (e) {
+      debugPrint('Error saving theme preference: $e');
+    }
+  }
 }

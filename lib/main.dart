@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:intl/intl.dart';
 
@@ -41,11 +44,25 @@ class StriveApp extends StatefulWidget {
 }
 
 class _StriveAppState extends State<StriveApp> {
-  bool _isDarkMode = true;
+  bool _isDarkMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThemePreference();
+  }
+
+  Future<void> _loadThemePreference() async {
+    final isDark = await SessionStorage.loadDarkModePreference();
+    setState(() {
+      _isDarkMode = isDark;
+    });
+  }
 
   void _toggleTheme() {
     setState(() {
       _isDarkMode = !_isDarkMode;
+      SessionStorage.saveDarkModePreference(_isDarkMode);
     });
   }
 
@@ -98,21 +115,26 @@ class StriveHomeScreen extends StatefulWidget {
 }
 
 class _StriveHomeScreenState extends State<StriveHomeScreen> {
-  // Navigation State
-  String _currentTab = 'timer'; // 'timer' or 'history'
-
   // Data State
   List<StudySession> _sessions = [];
   bool _isLoading = true;
 
   // Active Timer State
   bool _isTimerActive = false;
+  bool _isTimerPaused = false;
   DateTime? _activeSessionStart;
   Timer? _timer;
   int _secondsElapsed = 0;
 
-  // Form Input State
-  final TextEditingController _objectiveController = TextEditingController();
+  // Break Suggestion Settings State
+  bool _breakSuggestEnabled = false;
+  int _breakSuggestMinutes = 25;
+  bool _breakSuggested = false;
+  bool _showBreakBanner = false;
+
+  // Heatmap Calendar & Date Selection State
+  DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -127,7 +149,6 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    _objectiveController.dispose();
     super.dispose();
   }
 
@@ -147,7 +168,10 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
   Future<void> _checkCrashRecovery() async {
     final active = await SessionStorage.loadActiveSession();
     if (active != null) {
-      final elapsedSec = DateTime.now().difference(active.startTime).inSeconds;
+      final elapsedSec = active.durationSeconds > 0 
+          ? active.durationSeconds 
+          : DateTime.now().difference(active.startTime).inSeconds;
+          
       if (elapsedSec < 0) {
         // Clock skew or invalid start time, just clear
         await SessionStorage.clearActiveSession();
@@ -194,7 +218,7 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        active.description.isNotEmpty ? active.description : 'Untitled focus objective',
+                        'Interrupted Session',
                         style: AppDesign.getLogFeedStyle(colors).copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 6),
@@ -225,7 +249,15 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
               ElevatedButton(
                 onPressed: () async {
                   final completed = active.complete(DateTime.now());
-                  await _saveSession(completed);
+                  // Override completed duration to match crash recovered time
+                  final finalCompleted = StudySession(
+                    id: completed.id,
+                    description: completed.description,
+                    startTime: completed.startTime,
+                    endTime: completed.endTime,
+                    durationSeconds: elapsedSec,
+                  );
+                  await _saveSession(finalCompleted);
                   await SessionStorage.clearActiveSession();
                   if (context.mounted) Navigator.of(context).pop();
                 },
@@ -263,11 +295,363 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     await SessionStorage.saveSessions(updated);
   }
 
+  // Export JSON backups (clipboard and file export)
+  void _showExportDialog() async {
+    final colors = widget.isDarkMode ? AppColors.dark : AppColors.light;
+    final jsonStr = await SessionStorage.exportToJsonString();
+    final pathController = TextEditingController();
+    
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      pathController.text = '${docDir.path}/strive_backup.json';
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        String statusMessage = '';
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: colors.card,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+                side: BorderSide(color: colors.border, width: 1),
+              ),
+              title: Text(
+                'Export Session History',
+                style: AppDesign.getAppHeaderStyle(colors).copyWith(fontSize: 18),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Backup your study sessions either by copying the data to your clipboard or saving to a local JSON file.',
+                    style: AppDesign.getLogFeedStyle(colors).copyWith(color: colors.muted),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Copy to clipboard option
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: jsonStr));
+                      setDialogState(() {
+                        statusMessage = '✅ JSON backup copied to clipboard!';
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.primary.withOpacity(0.08),
+                      foregroundColor: colors.primary,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        side: BorderSide(color: colors.border, width: 1),
+                      ),
+                    ),
+                    icon: const Icon(Icons.copy_rounded, size: 16),
+                    label: const Text('Copy JSON Data to Clipboard', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  
+                  // Save to path option
+                  Text(
+                    'Save to Local File Path:',
+                    style: AppDesign.getLogFeedStyle(colors).copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: pathController,
+                    style: TextStyle(color: colors.foreground, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: '/path/to/backup.json',
+                      hintStyle: TextStyle(color: colors.muted),
+                      filled: true,
+                      fillColor: colors.background,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: BorderSide(color: colors.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: BorderSide(color: colors.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: const BorderSide(color: AppColors.focusAccent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final path = pathController.text.trim();
+                      if (path.isEmpty) {
+                        setDialogState(() {
+                          statusMessage = '❌ Please enter a valid path.';
+                        });
+                        return;
+                      }
+                      try {
+                        final file = File(path);
+                        await file.parent.create(recursive: true);
+                        await file.writeAsString(jsonStr);
+                        setDialogState(() {
+                          statusMessage = '✅ Saved successfully to:\n$path';
+                        });
+                      } catch (e) {
+                        setDialogState(() {
+                          statusMessage = '❌ Error writing file:\n${e.toString()}';
+                        });
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.primary,
+                      foregroundColor: colors.onPrimary,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                      ),
+                    ),
+                    icon: const Icon(Icons.save_rounded, size: 16),
+                    label: const Text('Save to Path', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  
+                  if (statusMessage.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      statusMessage,
+                      style: AppDesign.getBodyMutedStyle(colors).copyWith(
+                        color: statusMessage.contains('✅') ? AppColors.focusAccent : Colors.redAccent,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Close', style: TextStyle(color: colors.foreground)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Import JSON backups (clipboard and file load)
+  void _showImportDialog() {
+    final colors = widget.isDarkMode ? AppColors.dark : AppColors.light;
+    final pathController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        String statusMessage = '';
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: colors.card,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+                side: BorderSide(color: colors.border, width: 1),
+              ),
+              title: Text(
+                'Import Session History',
+                style: AppDesign.getAppHeaderStyle(colors).copyWith(fontSize: 18),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Import a Strive session backup. This will merge sessions and prevent duplicate entries automatically.',
+                    style: AppDesign.getLogFeedStyle(colors).copyWith(color: colors.muted),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Paste option
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+                      final text = clipboardData?.text ?? '';
+                      if (text.trim().isEmpty) {
+                        setDialogState(() {
+                          statusMessage = '❌ Clipboard is empty or contains no text.';
+                        });
+                        return;
+                      }
+                      
+                      final success = await _processImportString(text);
+                      if (success) {
+                        setDialogState(() {
+                          statusMessage = '✅ Successfully imported & merged data!';
+                        });
+                      } else {
+                        setDialogState(() {
+                          statusMessage = '❌ Invalid format. Please check JSON data.';
+                        });
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.primary.withOpacity(0.08),
+                      foregroundColor: colors.primary,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        side: BorderSide(color: colors.border, width: 1),
+                      ),
+                    ),
+                    icon: const Icon(Icons.paste_rounded, size: 16),
+                    label: const Text('Paste & Import from Clipboard', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  
+                  // Load from path option
+                  Text(
+                    'Load from Local File Path:',
+                    style: AppDesign.getLogFeedStyle(colors).copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: pathController,
+                    style: TextStyle(color: colors.foreground, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: '/path/to/backup.json',
+                      hintStyle: TextStyle(color: colors.muted),
+                      filled: true,
+                      fillColor: colors.background,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: BorderSide(color: colors.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: BorderSide(color: colors.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                        borderSide: const BorderSide(color: AppColors.focusAccent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final path = pathController.text.trim();
+                      if (path.isEmpty) {
+                        setDialogState(() {
+                          statusMessage = '❌ Please enter a valid path.';
+                        });
+                        return;
+                      }
+                      
+                      try {
+                        final file = File(path);
+                        if (!await file.exists()) {
+                          setDialogState(() {
+                            statusMessage = '❌ File does not exist at this path.';
+                          });
+                          return;
+                        }
+                        
+                        final text = await file.readAsString();
+                        final success = await _processImportString(text);
+                        if (success) {
+                          setDialogState(() {
+                            statusMessage = '✅ Successfully imported & merged file data!';
+                          });
+                        } else {
+                          setDialogState(() {
+                            statusMessage = '❌ Invalid format. Please check JSON file content.';
+                          });
+                        }
+                      } catch (e) {
+                        setDialogState(() {
+                          statusMessage = '❌ Error reading file:\n${e.toString()}';
+                        });
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colors.primary,
+                      foregroundColor: colors.onPrimary,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                      ),
+                    ),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                    label: const Text('Load & Import from File', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  
+                  if (statusMessage.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      statusMessage,
+                      style: AppDesign.getBodyMutedStyle(colors).copyWith(
+                        color: statusMessage.contains('✅') ? AppColors.focusAccent : Colors.redAccent,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Close', style: TextStyle(color: colors.foreground)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Parse imported JSON and update sessions
+  Future<bool> _processImportString(String jsonText) async {
+    try {
+      final List<dynamic> decoded = jsonDecode(jsonText);
+      final incomingSessions = decoded.map((item) => StudySession.fromJson(item)).toList();
+      
+      final merged = SessionStorage.mergeSessions(_sessions, incomingSessions);
+      
+      setState(() {
+        _sessions = merged;
+      });
+      
+      await SessionStorage.saveSessions(merged);
+      return true;
+    } catch (e) {
+      debugPrint('Import parsing error: $e');
+      return false;
+    }
+  }
+
   // Start the Focus Timer
   Future<void> _startTimer() async {
-    // Create and save active session state for crash recovery
     final active = StudySession.start(
-      description: _objectiveController.text.trim(),
+      description: 'Study Session',
       startTime: DateTime.now(),
     );
     
@@ -275,17 +659,74 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
 
     setState(() {
       _isTimerActive = true;
+      _isTimerPaused = false;
       _activeSessionStart = active.startTime;
       _secondsElapsed = 0;
+      _breakSuggested = false;
+      _showBreakBanner = false;
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_activeSessionStart != null) {
+      if (_isTimerActive && !_isTimerPaused) {
         setState(() {
-          _secondsElapsed = DateTime.now().difference(_activeSessionStart!).inSeconds;
+          _secondsElapsed++;
+          _checkBreakSuggestion();
         });
+        
+        // Save active session state periodically (every 5 seconds) to prevent focus data loss
+        if (_secondsElapsed % 5 == 0 && _activeSessionStart != null) {
+          final active = StudySession(
+            id: 'active',
+            description: 'Study Session',
+            startTime: _activeSessionStart!,
+            endTime: DateTime.now(),
+            durationSeconds: _secondsElapsed,
+          );
+          SessionStorage.saveActiveSession(active);
+        }
       }
     });
+  }
+
+  // Pause the running timer
+  Future<void> _pauseTimer() async {
+    if (!_isTimerActive || _isTimerPaused) return;
+
+    setState(() {
+      _isTimerPaused = true;
+    });
+
+    // Save active session state in case of crash, encoding current elapsed time
+    if (_activeSessionStart != null) {
+      final active = StudySession(
+        id: 'active',
+        description: 'Study Session',
+        startTime: _activeSessionStart!,
+        endTime: DateTime.now(),
+        durationSeconds: _secondsElapsed,
+      );
+      await SessionStorage.saveActiveSession(active);
+    }
+  }
+
+  // Resume the paused timer
+  Future<void> _resumeTimer() async {
+    if (!_isTimerActive || !_isTimerPaused) return;
+
+    // Rebase the start date to match current elapsed running seconds
+    final adjustedStart = DateTime.now().subtract(Duration(seconds: _secondsElapsed));
+
+    setState(() {
+      _isTimerPaused = false;
+      _activeSessionStart = adjustedStart;
+    });
+
+    // Save updated start time configuration
+    final active = StudySession.start(
+      description: 'Study Session',
+      startTime: adjustedStart,
+    );
+    await SessionStorage.saveActiveSession(active);
   }
 
   // Stop the Focus Timer and save
@@ -298,12 +739,10 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     // Build the finalized session object
     final finalSession = StudySession(
       id: StudySession.generateUuid(),
-      description: _objectiveController.text.trim().isNotEmpty 
-          ? _objectiveController.text.trim()
-          : 'Untitled session',
+      description: 'Study Session',
       startTime: _activeSessionStart!,
       endTime: endTime,
-      durationSeconds: endTime.difference(_activeSessionStart!).inSeconds,
+      durationSeconds: _secondsElapsed,
     );
 
     // Save completed session and clear active temp state
@@ -312,10 +751,24 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
 
     setState(() {
       _isTimerActive = false;
+      _isTimerPaused = false;
       _activeSessionStart = null;
       _secondsElapsed = 0;
-      _objectiveController.clear();
+      _breakSuggested = false;
+      _showBreakBanner = false;
     });
+  }
+
+  // Monitor break suggestions
+  void _checkBreakSuggestion() {
+    if (_breakSuggestEnabled && !_breakSuggested) {
+      if (_secondsElapsed >= (_breakSuggestMinutes * 60)) {
+        setState(() {
+          _breakSuggested = true;
+          _showBreakBanner = true;
+        });
+      }
+    }
   }
 
   // Utility to format seconds into MM:SS or HH:MM:SS
@@ -334,8 +787,9 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     }
   }
 
-  // Format total seconds into human friendly text (e.g. 1.2 hrs or 45 mins)
+  // Format total seconds into human friendly text (e.g. 1h 30m or 45m)
   String _formatSessionDurationFriendly(int totalSeconds) {
+    if (totalSeconds <= 0) return 'No Record';
     if (totalSeconds < 60) {
       return '${totalSeconds}s';
     }
@@ -351,34 +805,38 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     return '${hours}h ${remainingMins}m';
   }
 
-  // Friendly Date Time Formatter
-  String _formatSessionDateTime(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final dateToCheck = DateTime(dt.year, dt.month, dt.day);
-
-    final timeStr = DateFormat('h:mm a').format(dt);
-    if (dateToCheck == today) {
-      return 'Today at $timeStr';
-    } else if (dateToCheck == yesterday) {
-      return 'Yesterday at $timeStr';
-    } else {
-      return '${DateFormat('MMM d').format(dt)} at $timeStr';
+  // Group session data by day (local time)
+  Map<String, int> _groupSessionsByDay() {
+    final Map<String, int> dayMap = {};
+    for (var session in _sessions) {
+      final dateStr = DateFormat('yyyy-MM-dd').format(session.startTime.toLocal());
+      dayMap[dateStr] = (dayMap[dateStr] ?? 0) + session.durationSeconds;
     }
+    return dayMap;
   }
 
-  // Calculate statistics
-  double get _totalFocusHours {
-    if (_sessions.isEmpty) return 0.0;
-    final totalSecs = _sessions.fold<int>(0, (sum, s) => sum + s.durationSeconds);
-    return totalSecs / 3600.0;
+  // Calculate today's focused seconds
+  int get _secondsToday {
+    final now = DateTime.now();
+    final todayStr = DateFormat('yyyy-MM-dd').format(now);
+    final dayMap = _groupSessionsByDay();
+    int savedToday = dayMap[todayStr] ?? 0;
+    if (_isTimerActive) {
+      savedToday += _secondsElapsed;
+    }
+    return savedToday;
   }
 
-  double get _avgSessionMinutes {
-    if (_sessions.isEmpty) return 0.0;
-    final totalSecs = _sessions.fold<int>(0, (sum, s) => sum + s.durationSeconds);
-    return (totalSecs / _sessions.length) / 60.0;
+  // Calculate daily average focused seconds
+  int get _avgDailySeconds {
+    final dayMap = _groupSessionsByDay();
+    if (_isTimerActive) {
+      final nowStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      dayMap[nowStr] = (dayMap[nowStr] ?? 0) + _secondsElapsed;
+    }
+    if (dayMap.isEmpty) return 0;
+    final totalSec = dayMap.values.fold<int>(0, (sum, val) => sum + val);
+    return totalSec ~/ dayMap.length;
   }
 
   @override
@@ -402,615 +860,447 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
               duration: AppDesign.transitionDuration,
               curve: AppDesign.transitionCurve,
               color: colors.background,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Column 1: Left Sidebar (collapses to 0 width in active focus)
-                  AnimatedContainer(
-                    duration: AppDesign.transitionDuration,
-                    curve: AppDesign.transitionCurve,
-                    width: _isTimerActive ? 0 : 240,
-                    clipBehavior: Clip.hardEdge,
-                    decoration: BoxDecoration(
-                      border: Border(
-                        right: BorderSide(
-                          color: _isTimerActive ? Colors.transparent : colors.border,
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    child: _buildLeftSidebar(colors),
-                  ),
-
-                  // Column 2: Central Workspace (Always takes remaining space)
-                  Expanded(
-                    child: _buildCentralWorkspace(colors),
-                  ),
-
-                  // Column 3: Right Sidebar (collapses to 0 width in active focus)
-                  AnimatedContainer(
-                    duration: AppDesign.transitionDuration,
-                    curve: AppDesign.transitionCurve,
-                    width: _isTimerActive ? 0 : 300,
-                    clipBehavior: Clip.hardEdge,
-                    decoration: BoxDecoration(
-                      border: Border(
-                        left: BorderSide(
-                          color: _isTimerActive ? Colors.transparent : colors.border,
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    child: _buildRightSidebar(colors),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // BUILD: Left Sidebar Navigation
-  Widget _buildLeftSidebar(AppColors colors) {
-    return Container(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Section: Navigation View Selector
-          Text('NAVIGATION', style: AppDesign.getWidgetHeaderStyle(colors)),
-          const SizedBox(height: 12),
-          _buildNavigationTabButton('Timer View', 'timer', Icons.timer_outlined, colors),
-          const SizedBox(height: 8),
-          _buildNavigationTabButton('History Logs', 'history', Icons.history_outlined, colors),
-        ],
-      ),
-    );
-  }
-
-  // Navigation tab helper
-  Widget _buildNavigationTabButton(String label, String tabId, IconData icon, AppColors colors) {
-    final isSelected = _currentTab == tabId;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _currentTab = tabId;
-          });
-        },
-        borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? colors.primary.withOpacity(0.08) : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-            border: Border.all(
-              color: isSelected ? colors.border : Colors.transparent,
-              width: 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: isSelected ? colors.primary : colors.muted,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                label,
-                style: AppDesign.getLogFeedStyle(colors).copyWith(
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? colors.foreground : colors.muted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // BUILD: Central Workspace (Timer active layout / Timer idle layout / History logs layout)
-  Widget _buildCentralWorkspace(AppColors colors) {
-    if (_currentTab == 'history') {
-      return _buildHistoryLogsView(colors);
-    }
-
-    // Timer Active Focus State
-    if (_isTimerActive) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Floating tag for objective
-            if (_objectiveController.text.trim().isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: colors.border, width: 1),
-                ),
-                child: Text(
-                  _objectiveController.text.trim(),
-                  style: AppDesign.getBodyMutedStyle(colors).copyWith(
-                    fontStyle: FontStyle.italic,
-                    color: colors.foreground,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-
-            // Digital clock (monospaced)
-            Text(
-              _formatSeconds(_secondsElapsed),
-              style: AppDesign.getTimerStyle(colors).copyWith(fontSize: 72),
-            ),
-            
-            const SizedBox(height: 8),
-            Text(
-              'KEEP FOCUSING',
-              style: AppDesign.getWidgetHeaderStyle(colors).copyWith(letterSpacing: 2.0),
-            ),
-            
-            const SizedBox(height: 48),
-
-            // Red Stop focus CTA
-            ElevatedButton(
-              onPressed: _stopTimer,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.softRedBg,
-                foregroundColor: colors.softRedText,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-                  side: BorderSide(color: colors.softRedBorder, width: 1),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                elevation: 0,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.stop_rounded, size: 18, color: colors.softRedText),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Stop Focus Session',
-                    style: AppDesign.getLogFeedStyle(colors).copyWith(
-                      color: colors.softRedText,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Timer Idle State Layout
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(40.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'START STUDY SESSION',
-            style: AppDesign.getWidgetHeaderStyle(colors),
-          ),
-          const SizedBox(height: 16),
-
-          // Objective Input Box
-          TextField(
-            controller: _objectiveController,
-            style: AppDesign.getLogFeedStyle(colors),
-            decoration: InputDecoration(
-              hintText: 'What are you studying?',
-              hintStyle: AppDesign.getBodyMutedStyle(colors),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              filled: true,
-              fillColor: colors.card,
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: colors.border, width: 1),
-                borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: colors.ring, width: 1.5),
-                borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Action Button Area
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              ElevatedButton(
-                onPressed: _startTimer,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.onPrimary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                  elevation: 0,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.play_arrow_rounded, size: 18, color: colors.onPrimary),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Start Session',
-                      style: AppDesign.getLogFeedStyle(colors).copyWith(
-                        color: colors.onPrimary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 48),
-          
-          // Section: Recent Logs (shows last 3-5 sessions)
-          Text(
-            'RECENT FOCUS SESSIONS',
-            style: AppDesign.getWidgetHeaderStyle(colors),
-          ),
-          const SizedBox(height: 16),
-
-          _isLoading
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24.0),
-                  child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-                )
-              : _sessions.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 32.0),
-                      child: Center(
-                        child: Text(
-                          'No recent study sessions recorded.',
-                          style: AppDesign.getBodyMutedStyle(colors),
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _sessions.length > 5 ? 5 : _sessions.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final session = _sessions[index];
-                        return _buildSessionLogCard(session, colors);
-                      },
-                    ),
-        ],
-      ),
-    );
-  }
-
-  // BUILD: Detailed full History view
-  Widget _buildHistoryLogsView(AppColors colors) {
-    return Container(
-      padding: const EdgeInsets.all(40.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'FOCUS HISTORY LOGS',
-                    style: AppDesign.getWidgetHeaderStyle(colors),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Review all completed study blocks',
-                    style: AppDesign.getBodyMutedStyle(colors),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              // Delete history button if user wants to clear
-              if (_sessions.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () {
-                    // Confirm clear dialog
-                    showDialog(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          backgroundColor: colors.card,
-                          surfaceTintColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
-                            side: BorderSide(color: colors.border),
-                          ),
-                          title: Text('Clear History', style: AppDesign.getAppHeaderStyle(colors)),
-                          content: Text('Are you sure you want to delete all study history? This cannot be undone.', style: AppDesign.getLogFeedStyle(colors)),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: Text('Cancel', style: TextStyle(color: colors.muted)),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                setState(() {
-                                  _sessions = [];
-                                });
-                                await SessionStorage.saveSessions([]);
-                                if (context.mounted) Navigator.pop(context);
-                              },
-                              child: const Text('Delete All', style: TextStyle(color: Colors.red)),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                  icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                  label: const Text('Clear All', style: TextStyle(color: Colors.red, fontSize: 13)),
-                ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : _sessions.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.history, size: 48, color: colors.muted.withOpacity(0.4)),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No study sessions found.',
-                              style: AppDesign.getBodyMutedStyle(colors),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: _sessions.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final session = _sessions[index];
-                          return _buildSessionLogCard(session, colors);
-                        },
-                      ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Session Feed Card widget
-  Widget _buildSessionLogCard(StudySession session, AppColors colors) {
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.card,
-        borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
-        border: Border.all(color: colors.border, width: 1),
-      ),
-      clipBehavior: Clip.hardEdge,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Left Accent Bar (thin vertical accent bar runs along left edge)
-            Container(
-              width: 4,
-              color: AppColors.focusAccent,
-            ),
-            
-            // Content
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Start Time Date
-                          Text(
-                            _formatSessionDateTime(session.startTime),
-                            style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 11),
-                          ),
-                          const SizedBox(height: 4),
-                          // Session Objective description
-                          Text(
-                            session.description,
-                            style: AppDesign.getLogFeedStyle(colors).copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    // Duration display
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colors.background,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: colors.border, width: 0.5),
-                      ),
-                      child: Text(
-                        _formatSessionDurationFriendly(session.durationSeconds),
-                        style: AppDesign.getLogFeedStyle(colors).copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-
-                    // Inline Delete button
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: Icon(Icons.delete_outline, size: 16, color: colors.muted),
-                      onPressed: () {
-                        // Confirm individual delete
-                        showDialog(
-                          context: context,
-                          builder: (context) {
-                            return AlertDialog(
-                              backgroundColor: colors.card,
-                              surfaceTintColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
-                                side: BorderSide(color: colors.border),
+              child: _isLoading 
+                ? Center(child: CircularProgressIndicator(color: AppColors.focusAccent, strokeWidth: 2))
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Column 1: Focus Timer Engine (Takes remaining space)
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // Non-intrusive Break Recommendation Banner
+                              if (_showBreakBanner) ...[
+                                _buildBreakBanner(colors),
+                                const SizedBox(height: 36),
+                              ],
+                              
+                              // Large Digital Clock
+                              Text(
+                                _formatSeconds(_secondsElapsed),
+                                style: AppDesign.getTimerStyle(colors).copyWith(fontSize: 84),
                               ),
-                              title: Text('Delete Session', style: AppDesign.getAppHeaderStyle(colors)),
-                              content: Text('Are you sure you want to delete this study block?', style: AppDesign.getLogFeedStyle(colors)),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: Text('Cancel', style: TextStyle(color: colors.muted)),
+                              const SizedBox(height: 12),
+                              
+                              Text(
+                                _isTimerActive
+                                    ? (_isTimerPaused ? 'SESSION PAUSED' : 'FOCUS IN PROGRESS')
+                                    : 'READY TO FOCUS',
+                                style: AppDesign.getWidgetHeaderStyle(colors).copyWith(
+                                  letterSpacing: 2.0,
+                                  color: _isTimerActive && !_isTimerPaused ? AppColors.focusAccent : colors.muted,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                TextButton(
-                                  onPressed: () async {
-                                    final updated = List<StudySession>.from(_sessions)..removeWhere((s) => s.id == session.id);
-                                    setState(() {
-                                      _sessions = updated;
-                                    });
-                                    await SessionStorage.saveSessions(updated);
-                                    if (context.mounted) Navigator.pop(context);
-                                  },
-                                  child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                              ),
+                              const SizedBox(height: 48),
+
+                              // Play / Pause / Stop Buttons Row
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (!_isTimerActive) ...[
+                                    // Start Focus Button
+                                    ElevatedButton(
+                                      onPressed: _startTimer,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: colors.primary,
+                                        foregroundColor: colors.onPrimary,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 18),
+                                        elevation: 0,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.play_arrow_rounded, size: 22, color: colors.onPrimary),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Start Focus',
+                                            style: AppDesign.getLogFeedStyle(colors).copyWith(
+                                              color: colors.onPrimary,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ] else ...[
+                                    // Pause / Resume Button
+                                    ElevatedButton(
+                                      onPressed: _isTimerPaused ? _resumeTimer : _pauseTimer,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: colors.primary.withOpacity(0.08),
+                                        foregroundColor: colors.primary,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                          side: BorderSide(color: colors.border, width: 1),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                                        elevation: 0,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            _isTimerPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                                            size: 20,
+                                            color: colors.primary,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            _isTimerPaused ? 'Resume' : 'Pause',
+                                            style: AppDesign.getLogFeedStyle(colors).copyWith(
+                                              color: colors.foreground,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    
+                                    // Stop & Save Button
+                                    ElevatedButton(
+                                      onPressed: _stopTimer,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: colors.softRedBg,
+                                        foregroundColor: colors.softRedText,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                          side: BorderSide(color: colors.softRedBorder, width: 1),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                                        elevation: 0,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.stop_rounded, size: 20, color: colors.softRedText),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Stop & Save',
+                                            style: AppDesign.getLogFeedStyle(colors).copyWith(
+                                              color: colors.softRedText,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+
+                              // Break Settings Panel (Only editable when timer is idle)
+                              if (!_isTimerActive) ...[
+                                const SizedBox(height: 48),
+                                Container(
+                                  width: 340,
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: colors.card,
+                                    borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+                                    border: Border.all(color: colors.border, width: 1),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'BREAK SETTINGS',
+                                        style: AppDesign.getWidgetHeaderStyle(colors).copyWith(fontSize: 11),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Checkbox(
+                                            value: _breakSuggestEnabled,
+                                            activeColor: AppColors.focusAccent,
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _breakSuggestEnabled = val ?? false;
+                                              });
+                                            },
+                                          ),
+                                          Expanded(
+                                            child: Text(
+                                              'Suggest break after duration',
+                                              style: AppDesign.getLogFeedStyle(colors),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (_breakSuggestEnabled) ...[
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          children: [
+                                            const SizedBox(width: 48),
+                                            Expanded(
+                                              child: DropdownButtonHideUnderline(
+                                                child: DropdownButton<int>(
+                                                  value: _breakSuggestMinutes,
+                                                  isExpanded: true,
+                                                  dropdownColor: colors.card,
+                                                  items: const [
+                                                    DropdownMenuItem(value: 5, child: Text('5 minutes')),
+                                                    DropdownMenuItem(value: 15, child: Text('15 minutes')),
+                                                    DropdownMenuItem(value: 25, child: Text('25 minutes')),
+                                                    DropdownMenuItem(value: 45, child: Text('45 minutes')),
+                                                    DropdownMenuItem(value: 60, child: Text('60 minutes')),
+                                                  ],
+                                                  onChanged: (val) {
+                                                    if (val != null) {
+                                                      setState(() {
+                                                        _breakSuggestMinutes = val;
+                                                      });
+                                                    }
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
                               ],
-                            );
-                          },
-                        );
-                      },
-                      splashRadius: 18,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                            ],
+                          ),
+                        ),
+                      ),
 
-  // BUILD: Right Sidebar (Analytics & Consistency Heat Map)
-  Widget _buildRightSidebar(AppColors colors) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Section: Performance Summary
-          Text('PERFORMANCE SUMMARY', style: AppDesign.getWidgetHeaderStyle(colors)),
-          const SizedBox(height: 16),
-          
-          // Total Hours focused
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
-              border: Border.all(color: colors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_totalFocusHours.toStringAsFixed(1)} hrs',
-                  style: TextStyle(
-                    fontSize: 24.0,
-                    fontWeight: FontWeight.bold,
-                    color: colors.foreground,
+                      // vertical divider line
+                      if (!_isTimerActive)
+                        VerticalDivider(width: 1, color: colors.border),
+
+                      // Column 2: Performance analytics, heatmap, and daily logs (Collapsible)
+                      AnimatedContainer(
+                        duration: AppDesign.transitionDuration,
+                        curve: AppDesign.transitionCurve,
+                        width: _isTimerActive ? 0 : 400,
+                        clipBehavior: Clip.hardEdge,
+                        decoration: BoxDecoration(
+                          color: colors.card,
+                          border: Border(
+                            left: BorderSide(
+                              color: _isTimerActive ? Colors.transparent : colors.border,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: OverflowBox(
+                          minWidth: 400,
+                          maxWidth: 400,
+                          alignment: Alignment.topLeft,
+                          child: Container(
+                            width: 400, // Fixed width inside the AnimatedContainer to prevent wrapping/flickering
+                            padding: const EdgeInsets.all(32.0),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('CONSISTENCY HEATMAP', style: AppDesign.getWidgetHeaderStyle(colors)),
+                                  const SizedBox(height: 16),
+                                  _buildActivityHeatMap(colors),
+                                  
+                                  const SizedBox(height: 12),
+                                  // Heatmap Legend
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text('Less', style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10)),
+                                      const SizedBox(width: 4),
+                                      _buildLegendBox(colors.border),
+                                      const SizedBox(width: 3),
+                                      _buildLegendBox(AppColors.focusAccent.withOpacity(0.3)),
+                                      const SizedBox(width: 3),
+                                      _buildLegendBox(AppColors.focusAccent.withOpacity(0.65)),
+                                      const SizedBox(width: 3),
+                                      _buildLegendBox(AppColors.focusAccent),
+                                      const SizedBox(width: 4),
+                                      Text('More', style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 36),
+
+                                  Text('DAILY PERFORMANCE', style: AppDesign.getWidgetHeaderStyle(colors)),
+                                  const SizedBox(height: 16),
+                                  
+                                  // Total focus card (selected day aware)
+                                  Builder(builder: (context) {
+                                    final activeDay = _selectedDate ?? DateTime.now();
+                                    final isToday = activeDay.year == DateTime.now().year &&
+                                        activeDay.month == DateTime.now().month &&
+                                        activeDay.day == DateTime.now().day;
+                                    final secondsOnDay = _getSecondsForDay(activeDay);
+                                    
+                                    return Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: colors.background,
+                                        borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+                                        border: Border.all(color: colors.border, width: 1),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  _formatSessionDurationFriendly(secondsOnDay),
+                                                  style: TextStyle(
+                                                    fontSize: 24,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: colors.foreground,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (!isToday)
+                                                TextButton.icon(
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _selectedDate = DateTime.now();
+                                                    });
+                                                  },
+                                                  icon: const Icon(Icons.today, size: 14),
+                                                  label: const Text('Show Today', style: TextStyle(fontSize: 11)),
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor: colors.primary,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            isToday
+                                                ? 'Total Focus Today'
+                                                : 'Focus on ${DateFormat('MMM d, yyyy').format(activeDay)}',
+                                            style: AppDesign.getBodyMutedStyle(colors),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                  const SizedBox(height: 36),
+
+                                  Text('DAILY RECORDS', style: AppDesign.getWidgetHeaderStyle(colors)),
+                                  const SizedBox(height: 16),
+                                  _buildDailyRecordsList(colors),
+                                  const SizedBox(height: 36),
+
+                                  Text('DATA MANAGEMENT', style: AppDesign.getWidgetHeaderStyle(colors)),
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: _showExportDialog,
+                                          icon: const Icon(Icons.download_rounded, size: 16),
+                                          label: const Text('Export'),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: colors.foreground,
+                                            side: BorderSide(color: colors.border),
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: _showImportDialog,
+                                          icon: const Icon(Icons.upload_rounded, size: 16),
+                                          label: const Text('Import'),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: colors.foreground,
+                                            side: BorderSide(color: colors.border),
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text('Total Focus Hours', style: AppDesign.getBodyMutedStyle(colors)),
-              ],
             ),
-          ),
-          const SizedBox(height: 10),
-
-          // Average Session Time
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: colors.card,
-              borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
-              border: Border.all(color: colors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_avgSessionMinutes.toStringAsFixed(0)} mins',
-                  style: TextStyle(
-                    fontSize: 24.0,
-                    fontWeight: FontWeight.bold,
-                    color: colors.foreground,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text('Avg. Session Duration', style: AppDesign.getBodyMutedStyle(colors)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 36),
-
-          // Section: Activity Heat Map (Grid representing days of the week over past weeks)
-          Text('ACTIVITY MAP (4 WEEKS)', style: AppDesign.getWidgetHeaderStyle(colors)),
-          const SizedBox(height: 16),
-          
-          _buildActivityHeatMap(colors),
-          
-          const SizedBox(height: 16),
-          // Legend
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text('Less', style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10)),
-              const SizedBox(width: 4),
-              _buildLegendBox(colors.border),
-              const SizedBox(width: 3),
-              _buildLegendBox(AppColors.focusAccent.withOpacity(0.3)),
-              const SizedBox(width: 3),
-              _buildLegendBox(AppColors.focusAccent.withOpacity(0.65)),
-              const SizedBox(width: 3),
-              _buildLegendBox(AppColors.focusAccent),
-              const SizedBox(width: 4),
-              Text('More', style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10)),
-            ],
           ),
         ],
       ),
     );
   }
 
-  // Small legend grid cell box
+  // Non-intrusive break alert banner widget
+  Widget _buildBreakBanner(AppColors colors) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.focusAccent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+        border: Border.all(color: AppColors.focusAccent.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.coffee_outlined, color: AppColors.focusAccent, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Time for a break! ☕ You have focused for $_breakSuggestMinutes minutes.',
+              style: AppDesign.getLogFeedStyle(colors).copyWith(
+                fontWeight: FontWeight.bold,
+                color: colors.foreground,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Option to pause the timer directly
+          TextButton(
+            onPressed: () {
+              _pauseTimer();
+              setState(() {
+                _showBreakBanner = false;
+              });
+            },
+            child: const Text('Pause Timer', style: TextStyle(color: AppColors.focusAccent, fontWeight: FontWeight.bold)),
+          ),
+          // Option to dismiss banner
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: colors.muted),
+            onPressed: () {
+              setState(() {
+                _showBreakBanner = false;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Small legend box builder
   Widget _buildLegendBox(Color color) {
     return Container(
       width: 10,
@@ -1022,76 +1312,169 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     );
   }
 
-  // 4 Weeks activity heat map grid builder (Mon to Sun columns, 4 rows of weeks)
-  Widget _buildActivityHeatMap(AppColors colors) {
+  // Get total study seconds for a specific calendar date (including active timer today)
+  int _getSecondsForDay(DateTime day) {
+    int total = _sessions
+        .where((s) =>
+            s.startTime.year == day.year &&
+            s.startTime.month == day.month &&
+            s.startTime.day == day.day)
+        .fold<int>(0, (sum, s) => sum + s.durationSeconds);
+        
     final now = DateTime.now();
-    
-    // Find the Monday of the current week
-    final weekdayOffset = now.weekday - 1; // 0 for Mon, 6 for Sun
-    final mondayThisWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: weekdayOffset));
-    
-    // Starting date: 3 weeks prior to Monday of this week
-    final startDate = mondayThisWeek.subtract(const Duration(days: 21));
-
-    // Construct 4 rows of 7 days
-    final List<List<DateTime>> weeksGrid = [];
-    for (int week = 0; week < 4; week++) {
-      final List<DateTime> currentWeekDays = [];
-      for (int day = 0; day < 7; day++) {
-        currentWeekDays.add(startDate.add(Duration(days: week * 7 + day)));
-      }
-      weeksGrid.add(currentWeekDays);
+    if (_isTimerActive &&
+        day.year == now.year &&
+        day.month == now.month &&
+        day.day == now.day) {
+      total += _secondsElapsed;
     }
+    return total;
+  }
 
-    // Days label header
+  // Monthly activity heat map grid builder with interactive day selection and navigation
+  Widget _buildActivityHeatMap(AppColors colors) {
+    final year = _calendarMonth.year;
+    final month = _calendarMonth.month;
+    
+    final firstDay = DateTime(year, month, 1);
+    final weekdayOffset = firstDay.weekday - 1; // 0 for Mon, 6 for Sun
+    final totalDays = DateTime(year, month + 1, 0).day;
+    
+    final List<DateTime?> cells = [];
+    for (int i = 0; i < weekdayOffset; i++) {
+      cells.add(null);
+    }
+    for (int i = 1; i <= totalDays; i++) {
+      cells.add(DateTime(year, month, i));
+    }
+    final remaining = (7 - (cells.length % 7)) % 7;
+    for (int i = 0; i < remaining; i++) {
+      cells.add(null);
+    }
+    
+    final List<List<DateTime?>> weeks = [];
+    for (int i = 0; i < cells.length; i += 7) {
+      weeks.add(cells.sublist(i, i + 7));
+    }
+    
+    final now = DateTime.now();
     final List<String> daysLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
+    
     return Column(
       children: [
-        // Days indicator header (M T W T F S S)
+        // Month navigator header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              DateFormat('MMMM yyyy').format(_calendarMonth),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: colors.foreground,
+              ),
+            ),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left_rounded, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month - 1);
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  style: IconButton.styleFrom(foregroundColor: colors.foreground),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month + 1);
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  style: IconButton.styleFrom(foregroundColor: colors.foreground),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        // Days of week header
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: daysLabels.map((lbl) => Expanded(
             child: Text(
               lbl,
               textAlign: TextAlign.center,
-              style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 9, fontWeight: FontWeight.bold),
+              style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10, fontWeight: FontWeight.bold),
             ),
           )).toList(),
         ),
         const SizedBox(height: 6),
-
-        // Grid Rows
+        
+        // Month weeks grid
         Column(
-          children: weeksGrid.map((weekDays) {
+          children: weeks.map((week) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 6.0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: weekDays.map((dayDate) {
-                  // Calculate total focus time on this day
-                  final secondsStudied = _sessions
-                      .where((s) => 
-                          s.startTime.year == dayDate.year &&
-                          s.startTime.month == dayDate.month &&
-                          s.startTime.day == dayDate.day
-                      )
-                      .fold<int>(0, (sum, s) => sum + s.durationSeconds);
-                      
+                children: week.map((dayDate) {
+                  if (dayDate == null) {
+                    return const Expanded(
+                      child: SizedBox(height: 28),
+                    );
+                  }
+                  
+                  final secondsStudied = _getSecondsForDay(dayDate);
+                  final isToday = dayDate.year == now.year &&
+                      dayDate.month == now.month &&
+                      dayDate.day == now.day;
+                  
+                  final activeDay = _selectedDate ?? now;
+                  final isSelected = dayDate.year == activeDay.year &&
+                      dayDate.month == activeDay.month &&
+                      dayDate.day == activeDay.day;
+                  
                   return Expanded(
                     child: Tooltip(
-                      message: '${DateFormat('MMM d, yyyy').format(dayDate)}: ${_formatSessionDurationFriendly(secondsStudied)} focus',
-                      child: Container(
-                        height: 28,
-                        margin: const EdgeInsets.symmetric(horizontal: 3.0),
-                        decoration: BoxDecoration(
-                          color: _getHeatMapColor(secondsStudied, colors),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: dayDate.year == now.year && dayDate.month == now.month && dayDate.day == now.day
-                                ? colors.ring
-                                : colors.border.withOpacity(0.5),
-                            width: dayDate.year == now.year && dayDate.month == now.month && dayDate.day == now.day ? 1.5 : 0.5,
+                      message: '${DateFormat('MMM d, yyyy').format(dayDate)}: ${_formatSessionDurationFriendly(secondsStudied)}',
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedDate = dayDate;
+                          });
+                        },
+                        child: Container(
+                          height: 28,
+                          margin: const EdgeInsets.symmetric(horizontal: 2.0),
+                          decoration: BoxDecoration(
+                            color: _getHeatMapColor(secondsStudied, colors),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isSelected
+                                  ? colors.primary
+                                  : (isToday ? colors.ring : colors.border.withOpacity(0.3)),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${dayDate.day}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: isToday || isSelected ? FontWeight.bold : FontWeight.normal,
+                                color: secondsStudied > 0
+                                    ? (secondsStudied > 1800 ? Colors.white : colors.foreground)
+                                    : colors.foreground.withOpacity(0.6),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -1106,23 +1489,96 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     );
   }
 
-  // Returns shade color based on total study seconds
+  // Shading logic
   Color _getHeatMapColor(int seconds, AppColors colors) {
     if (seconds <= 0) {
-      return colors.card; // empty day
+      return colors.background;
     }
-    
-    // Base focus accent color
     final Color baseAccent = AppColors.focusAccent;
-
     final int minutes = seconds ~/ 60;
     if (minutes < 15) {
-      return baseAccent.withOpacity(0.20);
+      return baseAccent.withOpacity(0.30);
     } else if (minutes < 45) {
-      return baseAccent.withOpacity(0.55);
+      return baseAccent.withOpacity(0.65);
     } else {
-      return baseAccent; // deep focus completed
+      return baseAccent;
     }
+  }
+
+  // Daily records list grouped by calendar date
+  Widget _buildDailyRecordsList(AppColors colors) {
+    final dayMap = _groupSessionsByDay();
+    
+    // Inject current active time
+    if (_isTimerActive) {
+      final nowStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      dayMap[nowStr] = (dayMap[nowStr] ?? 0) + _secondsElapsed;
+    }
+    
+    if (dayMap.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24.0),
+        child: Center(
+          child: Text(
+            'No records found.',
+            style: AppDesign.getBodyMutedStyle(colors),
+          ),
+        ),
+      );
+    }
+
+    final sortedDays = dayMap.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: sortedDays.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final dateStr = sortedDays[index];
+        final seconds = dayMap[dateStr] ?? 0;
+        
+        final parsedDate = DateTime.parse(dateStr);
+        final now = DateTime.now();
+        final todayStr = DateFormat('yyyy-MM-dd').format(now);
+        final yesterdayStr = DateFormat('yyyy-MM-dd').format(now.subtract(const Duration(days: 1)));
+
+        String formattedDate = '';
+        if (dateStr == todayStr) {
+          formattedDate = 'Today';
+        } else if (dateStr == yesterdayStr) {
+          formattedDate = 'Yesterday';
+        } else {
+          formattedDate = DateFormat('MMMM d, yyyy').format(parsedDate);
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: colors.background,
+            borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+            border: Border.all(color: colors.border, width: 1),
+          ),
+          child: Row(
+            children: [
+              Text(
+                formattedDate,
+                style: AppDesign.getLogFeedStyle(colors).copyWith(fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              Text(
+                _formatSessionDurationFriendly(seconds),
+                style: AppDesign.getLogFeedStyle(colors).copyWith(
+                  fontFamily: 'monospace',
+                  color: AppColors.focusAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -1156,7 +1612,7 @@ class TitleBar extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 16),
-          // App Icon & Title
+          // Title
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -1186,12 +1642,12 @@ class TitleBar extends StatelessWidget {
               size: 16,
               color: colors.foreground,
             ),
-            tooltip: 'Toggle Visual Theme',
+            tooltip: 'Toggle Theme',
             onPressed: onThemeToggle,
             splashRadius: 18,
           ),
 
-          // Divider
+          // Custom Window controls
           if (!kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows)) ...[
             Container(
               width: 1,
@@ -1199,7 +1655,6 @@ class TitleBar extends StatelessWidget {
               color: colors.border,
               margin: const EdgeInsets.symmetric(horizontal: 4),
             ),
-            // Minimize
             IconButton(
               icon: Icon(Icons.remove, size: 14, color: colors.foreground),
               onPressed: () async {
@@ -1208,7 +1663,6 @@ class TitleBar extends StatelessWidget {
               splashRadius: 18,
               tooltip: 'Minimize',
             ),
-            // Maximize / Restore
             IconButton(
               icon: Icon(Icons.crop_square, size: 12, color: colors.foreground),
               onPressed: () async {
@@ -1222,7 +1676,6 @@ class TitleBar extends StatelessWidget {
               splashRadius: 18,
               tooltip: 'Maximize',
             ),
-            // Close
             IconButton(
               icon: const Icon(Icons.close, size: 14, color: Colors.redAccent),
               onPressed: () async {
