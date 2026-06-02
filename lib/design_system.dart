@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   // Focus Accent Color (Single color for the focus state & branding)
@@ -73,12 +74,11 @@ class AppDesign {
 
   // Typography Styles
   static TextStyle getTimerStyle(AppColors colors) {
-    return TextStyle(
-      fontFamily: 'monospace',
+    return GoogleFonts.orbitron(
       fontSize: 56.0,
       fontWeight: FontWeight.bold,
       color: colors.foreground,
-      letterSpacing: -1.0,
+      letterSpacing: 2.0,
     );
   }
 
