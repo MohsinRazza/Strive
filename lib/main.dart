@@ -30,6 +30,8 @@ void main() async {
       await windowManager.show();
       await windowManager.focus();
       await windowManager.setPreventClose(false);
+      await windowManager.setTitle('Strive');
+      await windowManager.setIcon('assets/images/logo_s.png');
     });
   }
 
@@ -1506,6 +1508,15 @@ class TitleBar extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Row(
                   children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.asset(
+                        'assets/images/logo_s.png',
+                        height: 22,
+                        width: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     isDarkMode
                         ? ColorFiltered(
                             colorFilter: const ColorFilter.matrix(<double>[
