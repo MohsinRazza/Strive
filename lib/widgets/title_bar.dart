@@ -59,42 +59,65 @@ class TitleBar extends StatelessWidget {
           ),
 
           // Accent Theme Dropdown
-          PopupMenuButton<AccentTheme>(
-            initialValue: accentTheme,
-            tooltip: 'Accent Color',
-            icon: Icon(Icons.palette_outlined, size: 16, color: colors.foreground),
-            onSelected: onAccentChange,
-            color: colors.card,
-            elevation: 8,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: colors.border),
+          Theme(
+            data: Theme.of(context).copyWith(
+              splashColor: Colors.transparent,
+              highlightColor: colors.primary.withOpacity(0.05),
+              hoverColor: colors.primary.withOpacity(0.05),
             ),
-            itemBuilder: (context) {
-              return AccentTheme.values.map((theme) {
-                return PopupMenuItem(
-                  value: theme,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: theme.color,
-                          shape: BoxShape.circle,
+            child: PopupMenuButton<AccentTheme>(
+              initialValue: accentTheme,
+              tooltip: 'Theme & Accent',
+              position: PopupMenuPosition.under,
+              offset: const Offset(0, 8),
+              icon: Icon(Icons.palette_outlined, size: 16, color: colors.foreground),
+              onSelected: onAccentChange,
+              color: colors.card,
+              elevation: 6,
+              shadowColor: Colors.black.withOpacity(0.2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: colors.border.withOpacity(0.5)),
+              ),
+              itemBuilder: (context) {
+                return AccentTheme.values.map((theme) {
+                  final isSelected = theme == accentTheme;
+                  return PopupMenuItem(
+                    value: theme,
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: theme.color,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: colors.border, width: 0.5),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        theme.label,
-                        style: AppDesign.getBodyMutedStyle(colors)
-                            .copyWith(color: colors.foreground),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList();
-            },
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            theme.label,
+                            style: AppDesign.getBodyMutedStyle(colors).copyWith(
+                              color: isSelected ? colors.foreground : colors.muted,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(Icons.check_rounded, size: 16, color: colors.foreground)
+                        else
+                          const SizedBox(width: 16),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
           ),
 
           // Theme Toggle (Light / Dark / System)
