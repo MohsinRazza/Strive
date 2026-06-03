@@ -50,7 +50,10 @@ mkdir -p "${DEB_ROOT}/DEBIAN"
 mkdir -p "${DEB_ROOT}/usr/lib/${APP_NAME}"
 mkdir -p "${DEB_ROOT}/usr/bin"
 mkdir -p "${DEB_ROOT}/usr/share/applications"
-mkdir -p "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps"
+# Create icon dirs for all standard hicolor sizes
+for SIZE in 16 24 32 48 64 96 128 256; do
+    mkdir -p "${DEB_ROOT}/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps"
+done
 
 echo "  ✓ Directory structure created."
 
@@ -67,11 +70,22 @@ exec /usr/lib/strive/strive "$@"
 LAUNCHER
 chmod 755 "${DEB_ROOT}/usr/bin/${APP_NAME}"
 
-# Copy app icon (use the project logo)
+# Copy and resize app icon to all standard hicolor sizes
 if [ -f "${PROJECT_DIR}/assets/images/logo_s.png" ]; then
-    cp "${PROJECT_DIR}/assets/images/logo_s.png" \
-       "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
-    echo "  ✓ App icon copied."
+    if command -v convert &> /dev/null; then
+        for SIZE in 16 24 32 48 64 96 128 256; do
+            convert "${PROJECT_DIR}/assets/images/logo_s.png" \
+                -resize "${SIZE}x${SIZE}" \
+                "${DEB_ROOT}/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps/${APP_NAME}.png"
+        done
+        echo "  ✓ App icons generated at all sizes."
+    else
+        # Fallback: just copy at 256x256 if ImageMagick not available
+        cp "${PROJECT_DIR}/assets/images/logo_s.png" \
+           "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+        echo "  ⚠ ImageMagick not found — only 256x256 icon copied."
+        echo "    Install with: sudo apt install imagemagick"
+    fi
 fi
 
 echo "  ✓ Bundle copied."
@@ -110,13 +124,15 @@ Keywords=study;timer;focus;pomodoro;productivity;
 StartupWMClass=strive
 EOF
 
-# Post-install script (update icon cache)
+# Post-install script (update icon cache so dock/multitasking sees the icon)
 cat > "${DEB_ROOT}/DEBIAN/postinst" << 'EOF'
 #!/bin/bash
 set -e
+# Force-refresh the hicolor icon theme cache
 if command -v gtk-update-icon-cache &> /dev/null; then
-    gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+    gtk-update-icon-cache --force --ignore-theme-index /usr/share/icons/hicolor/ 2>/dev/null || true
 fi
+# Update .desktop database so the app is findable
 if command -v update-desktop-database &> /dev/null; then
     update-desktop-database /usr/share/applications/ 2>/dev/null || true
 fi

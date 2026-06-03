@@ -74,11 +74,12 @@ class AppDesign {
 
   // Typography Styles
   static TextStyle getTimerStyle(AppColors colors) {
-    return GoogleFonts.orbitron(
+    return GoogleFonts.outfit(
       fontSize: 56.0,
-      fontWeight: FontWeight.bold,
+      fontWeight: FontWeight.w300,
       color: colors.foreground,
-      letterSpacing: 2.0,
+      letterSpacing: -2.0,
+      fontFeatures: [const FontFeature.tabularFigures()],
     );
   }
 

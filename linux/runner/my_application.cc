@@ -52,6 +52,9 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "Strive");
   }
 
+  // Set window icon from the installed hicolor icon theme.
+  // This is what the dock and multitasking view use (not the .desktop icon).
+  gtk_window_set_icon_name(window, "strive");
   gtk_window_set_default_size(window, 1280, 720);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

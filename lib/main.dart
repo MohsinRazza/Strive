@@ -291,6 +291,55 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
     await SessionStorage.saveSessions(updated);
   }
 
+  // Delete all sessions for a specific day (with confirmation dialog)
+  Future<void> _clearDayRecords(DateTime day) async {
+    final colors = widget.isDarkMode ? AppColors.dark : AppColors.light;
+    final isToday = day.year == DateTime.now().year &&
+        day.month == DateTime.now().month &&
+        day.day == DateTime.now().day;
+    final label = isToday ? 'today' : DateFormat('MMM d').format(day);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.card,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppDesign.borderRadiusCard),
+          side: BorderSide(color: colors.border.withOpacity(0.4)),
+        ),
+        title: Text(
+          'Clear $label?',
+          style: TextStyle(color: colors.foreground, fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        content: Text(
+          'This will permanently delete all focus sessions recorded for $label. This cannot be undone.',
+          style: TextStyle(color: colors.muted, fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: TextStyle(color: colors.muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final updated = _sessions.where((s) =>
+        !(s.startTime.year == day.year &&
+          s.startTime.month == day.month &&
+          s.startTime.day == day.day)
+      ).toList();
+      setState(() => _sessions = updated);
+      await SessionStorage.saveSessions(updated);
+    }
+  }
+
   // Export JSON backups (clipboard and file export)
   void _showExportDialog() async {
     final colors = widget.isDarkMode ? AppColors.dark : AppColors.light;
@@ -864,7 +913,7 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
                               // Large Digital Clock
                               Text(
                                 _formatSeconds(_secondsElapsed),
-                                style: AppDesign.getTimerStyle(colors).copyWith(fontSize: 96, fontWeight: FontWeight.w900),
+                                style: AppDesign.getTimerStyle(colors).copyWith(fontSize: 96),
                               ),
                               const SizedBox(height: 12),
                               
@@ -1107,6 +1156,20 @@ class _StriveHomeScreenState extends State<StriveHomeScreen> {
                                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
+                                                  ),
+                                                ),
+                                              ),
+                                            if (daySessions.isNotEmpty)
+                                              Tooltip(
+                                                message: 'Clear ${isToday ? "today\'s" : DateFormat('MMM d').format(activeDay)} records',
+                                                child: IconButton(
+                                                  onPressed: () => _clearDayRecords(activeDay),
+                                                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                                                  color: colors.foreground.withOpacity(0.4),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(),
+                                                  style: IconButton.styleFrom(
+                                                    hoverColor: Colors.redAccent.withOpacity(0.1),
                                                   ),
                                                 ),
                                               ),
@@ -1516,24 +1579,6 @@ class TitleBar extends StatelessWidget {
                         width: 22,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    isDarkMode
-                        ? ColorFiltered(
-                            colorFilter: const ColorFilter.matrix(<double>[
-                              -1,  0,  0,  0, 255,
-                               0, -1,  0,  0, 255,
-                               0,  0, -1,  0, 255,
-                               0,  0,  0,  1,   0,
-                            ]),
-                            child: Image.asset(
-                              'assets/images/logo.png',
-                              height: 24,
-                            ),
-                          )
-                        : Image.asset(
-                            'assets/images/logo.png',
-                            height: 24,
-                          ),
                   ],
                 ),
               ),
