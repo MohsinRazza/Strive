@@ -59,24 +59,50 @@ class ActivityHeatmap extends StatelessWidget {
               DateFormat('MMMM yyyy').format(calendarMonth),
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: colors.foreground),
             ),
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left_rounded, size: 20),
-                  onPressed: () => onMonthChanged(DateTime(calendarMonth.year, calendarMonth.month - 1)),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  style: IconButton.styleFrom(foregroundColor: colors.foreground),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right_rounded, size: 20),
-                  onPressed: () => onMonthChanged(DateTime(calendarMonth.year, calendarMonth.month + 1)),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  style: IconButton.styleFrom(foregroundColor: colors.foreground),
-                ),
-              ],
+            Container(
+              decoration: BoxDecoration(
+                color: colors.background,
+                border: Border.all(color: colors.border),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Tooltip(
+                    message: 'Previous month',
+                    child: InkWell(
+                      onTap: () => onMonthChanged(DateTime(calendarMonth.year, calendarMonth.month - 1)),
+                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(5)),
+                      hoverColor: colors.foreground.withOpacity(0.05),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Icon(
+                          Icons.chevron_left_rounded,
+                          size: 20,
+                          color: colors.foreground.withOpacity(0.6),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Container(width: 1, height: 16, color: colors.border),
+                  Tooltip(
+                    message: 'Next month',
+                    child: InkWell(
+                      onTap: () => onMonthChanged(DateTime(calendarMonth.year, calendarMonth.month + 1)),
+                      borderRadius: const BorderRadius.horizontal(right: Radius.circular(5)),
+                      hoverColor: colors.foreground.withOpacity(0.05),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: colors.foreground.withOpacity(0.6),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

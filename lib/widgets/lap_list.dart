@@ -85,29 +85,53 @@ class LapList extends StatelessWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput)),
                     ),
                   ),
-                if (daySessions.isNotEmpty) ...[
-                  Tooltip(
-                    message: showLaps ? 'Hide laps' : 'Show laps',
-                    child: IconButton(
-                      onPressed: onLapsToggle,
-                      icon: Icon(showLaps ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
-                      color: colors.foreground.withOpacity(0.4),
-                      padding: const EdgeInsets.only(left: 8, right: 4),
-                      constraints: const BoxConstraints(),
+                if (daySessions.isNotEmpty)
+                  Container(
+                    margin: EdgeInsets.only(left: _isToday ? 0 : 8),
+                    decoration: BoxDecoration(
+                      color: colors.background,
+                      border: Border.all(color: colors.border),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Tooltip(
+                          message: showLaps ? 'Hide laps' : 'Show laps',
+                          child: InkWell(
+                            onTap: onLapsToggle,
+                            borderRadius: const BorderRadius.horizontal(left: Radius.circular(5)),
+                            hoverColor: colors.foreground.withOpacity(0.05),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              child: Icon(
+                                showLaps ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                size: 16,
+                                color: colors.foreground.withOpacity(0.6),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Container(width: 1, height: 16, color: colors.border),
+                        Tooltip(
+                          message: 'Clear ${_isToday ? "today\'s" : DateFormat('MMM d').format(activeDay)} records',
+                          child: InkWell(
+                            onTap: onClearDay,
+                            borderRadius: const BorderRadius.horizontal(right: Radius.circular(5)),
+                            hoverColor: Colors.redAccent.withOpacity(0.1),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              child: Icon(
+                                Icons.delete_outline_rounded,
+                                size: 16,
+                                color: colors.foreground.withOpacity(0.6),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Tooltip(
-                    message: 'Clear ${_isToday ? "today\'s" : DateFormat('MMM d').format(activeDay)} records',
-                    child: IconButton(
-                      onPressed: onClearDay,
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      color: colors.foreground.withOpacity(0.4),
-                      padding: const EdgeInsets.only(left: 4, right: 0),
-                      constraints: const BoxConstraints(),
-                      style: IconButton.styleFrom(hoverColor: Colors.redAccent.withOpacity(0.1)),
-                    ),
-                  ),
-                ],
               ],
             ),
           ],

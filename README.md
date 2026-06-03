@@ -27,12 +27,13 @@ No subscriptions. No distractions. Just focus.
 
 ## Features
 
-- **⏱ Digital Focus Timer** — Large Orbitron-font clock with Start, Pause/Resume, and Stop & Save controls
+- **⏱ Digital Focus Timer** — Clean Outfit-font clock with Start, Pause/Resume, and Stop & Save controls
+- **✨ Mini Mode (Always on Top)** — Shrink the timer into a floating pill that stays above other windows while you work
+- **🎨 Custom Themes & Accents** — System/Light/Dark mode sync, plus 5 premium accent colors (Purple, Dark Brown, Cyan, Sky Blue, Orange Beige)
 - **📊 Activity Heatmap** — Month-view calendar showing daily study intensity at a glance
-- **📈 Daily Performance** — Total focus time and individual lap breakdown for any selected day
+- **📈 Daily Performance** — Total focus time and toggleable individual lap breakdown for any selected day
 - **🗓 Date Navigation** — Click any heatmap day to inspect past sessions
 - **💾 Data Management** — Export and import your full session history as JSON (clipboard or file)
-- **🌙 Dark / Light Mode** — Seamless theme toggle with instant transition
 - **🪟 Custom Frameless Window** — Native drag-to-move title bar with custom window controls
 - **🔒 Crash Recovery** — Active session state is auto-saved every 5 seconds to prevent data loss
 
@@ -68,10 +69,11 @@ sudo dpkg -r strive
 
 ---
 
-## Building from Source
+## How to Run & Build from Source
 
 ### Prerequisites
 
+To run or build Strive on your machine, you need:
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) (stable channel)
 - Linux build dependencies:
 
@@ -79,7 +81,9 @@ sudo dpkg -r strive
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev
 ```
 
-### Build & Run
+### Running the Project (Development)
+
+Clone the repository and run it directly using Flutter:
 
 ```bash
 git clone https://github.com/MohsinRazza/Strive.git
@@ -106,7 +110,7 @@ The output `.deb` will be placed in `build/strive_<version>_amd64.deb`.
 | Layer | Technology |
 |---|---|
 | Framework | Flutter (Dart) |
-| Font | [Orbitron](https://fonts.google.com/specimen/Orbitron) via `google_fonts` |
+| Font | [Outfit](https://fonts.google.com/specimen/Outfit) via `google_fonts` |
 | Window Management | `window_manager` |
 | Storage | Local JSON via `path_provider` |
 | Date Formatting | `intl` |

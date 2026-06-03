@@ -12,7 +12,7 @@ set -e  # Exit on any error
 APP_NAME="strive"
 APP_DISPLAY_NAME="Strive"
 APP_VERSION="1.0.0"
-APP_DESCRIPTION="A minimal, distraction-free study timer and focus tracker."
+APP_DESCRIPTION="A minimal, distraction-free study timer and focus tracker with mini-mode and dynamic themes."
 APP_MAINTAINER="Mohsin Razza <mohsin@silinode.com>"
 APP_HOMEPAGE="https://github.com/MohsinRazza/Strive"
 ARCH="amd64"
@@ -104,9 +104,9 @@ Maintainer: ${APP_MAINTAINER}
 Homepage: ${APP_HOMEPAGE}
 Description: ${APP_DESCRIPTION}
  Strive is a minimalist desktop study timer built with Flutter.
- Features include a distraction-free focus timer, activity heatmap,
- daily performance tracking with lap-based session logs, and
- full import/export of study history.
+ Features include a distraction-free focus timer, floating mini-mode,
+ dynamic color themes, activity heatmap, daily performance tracking
+ with lap-based session logs, and full import/export of study history.
 Depends: libgtk-3-0, libblkid1, liblzma5
 EOF
 
