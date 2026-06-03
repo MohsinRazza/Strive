@@ -68,7 +68,7 @@ class _TimerPanelState extends State<TimerPanel> with TickerProviderStateMixin {
                 return CustomPaint(
                   painter: _FocusGlowPainter(
                     intensity: _glowController.value,
-                    color: AppColors.focusAccent,
+                    color: widget.colors.focusAccent,
                   ),
                 );
               },
@@ -96,7 +96,7 @@ class _TimerPanelState extends State<TimerPanel> with TickerProviderStateMixin {
                     : 'READY TO FOCUS',
                 style: AppDesign.getWidgetHeaderStyle(widget.colors).copyWith(
                   letterSpacing: 2.0,
-                  color: isActive ? AppColors.focusAccent : widget.colors.muted,
+                  color: isActive ? widget.colors.focusAccent : widget.colors.muted,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -210,30 +210,45 @@ class _PauseResumeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: isPaused ? onResume : onPause,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: colors.primary.withOpacity(0.08),
-        foregroundColor: colors.primary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-          side: BorderSide(color: colors.border, width: 1),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-        elevation: 0,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-              size: 20, color: colors.primary),
-          const SizedBox(width: 8),
-          Text(
-            isPaused ? 'Resume' : 'Pause',
-            style: AppDesign.getLogFeedStyle(colors)
-                .copyWith(color: colors.foreground, fontWeight: FontWeight.bold),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: colors.foreground.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: ElevatedButton(
+        onPressed: isPaused ? onResume : onPause,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: colors.card,
+          foregroundColor: colors.primary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: colors.border.withOpacity(0.8), width: 1),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+          elevation: 0,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                size: 22, color: colors.primary),
+            const SizedBox(width: 8),
+            Text(
+              isPaused ? 'Resume Focus' : 'Pause Timer',
+              style: AppDesign.getLogFeedStyle(colors).copyWith(
+                color: colors.foreground,
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -246,29 +261,44 @@ class _StopButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: onStop,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: colors.softRedBg,
-        foregroundColor: colors.softRedText,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-          side: BorderSide(color: colors.softRedBorder, width: 1),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-        elevation: 0,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.stop_rounded, size: 20, color: colors.softRedText),
-          const SizedBox(width: 8),
-          Text(
-            'Stop & Save',
-            style: AppDesign.getLogFeedStyle(colors)
-                .copyWith(color: colors.softRedText, fontWeight: FontWeight.bold),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: colors.softRedText.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: ElevatedButton(
+        onPressed: onStop,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: colors.softRedBg,
+          foregroundColor: colors.softRedText,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: colors.softRedBorder.withOpacity(0.5), width: 1),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+          elevation: 0,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.stop_rounded, size: 22, color: colors.softRedText),
+            const SizedBox(width: 8),
+            Text(
+              'Stop & Save',
+              style: AppDesign.getLogFeedStyle(colors).copyWith(
+                color: colors.softRedText,
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

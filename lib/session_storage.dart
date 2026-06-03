@@ -113,31 +113,31 @@ class SessionStorage {
     return mergedList;
   }
 
-  // Load saved theme preference (defaulting to light, i.e., false)
-  static Future<bool> loadDarkModePreference() async {
+  // Load saved settings
+  static Future<Map<String, dynamic>> loadSettings() async {
     try {
-      if (kIsWeb) return false;
+      if (kIsWeb) return {};
       final file = await _getFile('settings.json');
       if (await file.exists()) {
         final contents = await file.readAsString();
-        final data = jsonDecode(contents);
-        return data['isDarkMode'] as bool? ?? false;
+        return jsonDecode(contents) as Map<String, dynamic>;
       }
     } catch (e) {
-      debugPrint('Error loading theme preference: $e');
+      debugPrint('Error loading settings: $e');
     }
-    return false;
+    return {};
   }
 
-  // Save theme preference
-  static Future<void> saveDarkModePreference(bool isDarkMode) async {
+  // Save settings (merges with existing)
+  static Future<void> saveSettings(Map<String, dynamic> newSettings) async {
     try {
       if (kIsWeb) return;
+      final currentSettings = await loadSettings();
+      currentSettings.addAll(newSettings);
       final file = await _getFile('settings.json');
-      final data = {'isDarkMode': isDarkMode};
-      await file.writeAsString(jsonEncode(data));
+      await file.writeAsString(jsonEncode(currentSettings));
     } catch (e) {
-      debugPrint('Error saving theme preference: $e');
+      debugPrint('Error saving settings: $e');
     }
   }
 }

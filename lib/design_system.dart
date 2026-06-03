@@ -1,10 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class AppColors {
-  // Focus Accent Color (Single color for the focus state & branding)
-  static const Color focusAccent = Color(0xFF8B5CF6); // 🟣 Deep Focus Purple
+enum ThemePreference { system, light, dark }
 
+enum AccentTheme {
+  purple('Purple', Color(0xFF8B5CF6)),
+  darkBrown('Dark Brown', Color(0xFF795548)),
+  cyan('Cyan', Color(0xFF06B6D4)),
+  skyBlue('Sky Blue', Color(0xFF0EA5E9)),
+  orangeBeige('Orange Beige', Color(0xFFF97316)); // Accent is orange
+
+  final String label;
+  final Color color;
+  const AccentTheme(this.label, this.color);
+}
+
+class AppColors {
+  final Color focusAccent;
+  
   // Semantic Design Tokens for Light/Dark Mode
   final Color background;
   final Color card;
@@ -19,6 +32,7 @@ class AppColors {
   final Color softRedText;
 
   const AppColors({
+    required this.focusAccent,
     required this.background,
     required this.card,
     required this.border,
@@ -32,35 +46,45 @@ class AppColors {
     required this.softRedText,
   });
 
-  // Light Mode Tokens
-  static const AppColors light = AppColors(
-    background: Color(0xFFFAFAFA),
-    card: Color(0xFFFFFFFF),
-    border: Color(0xFFE4E4E7),
-    ring: Color(0xFF18181B),
-    foreground: Color(0xFF09090B),
-    muted: Color(0xFF71717A),
-    primary: Color(0xFF18181B),
-    onPrimary: Color(0xFFFFFFFF),
-    softRedBg: Color(0xFFFEF2F2),
-    softRedBorder: Color(0xFFFCA5A5),
-    softRedText: Color(0xFF991B1B),
-  );
+  // Factory to generate colors based on mode and accent
+  factory AppColors.get({required bool isDark, required AccentTheme accent}) {
+    final focusColor = accent.color;
+    
+    // For Orange Beige, we give the light theme a slight beige tint
+    final bool isBeigeLight = accent == AccentTheme.orangeBeige && !isDark;
 
-  // Dark Mode Tokens
-  static const AppColors dark = AppColors(
-    background: Color(0xFF09090B),
-    card: Color(0xFF18181B),
-    border: Color(0xFF27272A),
-    ring: Color(0xFFD4D4D8),
-    foreground: Color(0xFFFAFAFA),
-    muted: Color(0xFFA1A1AA),
-    primary: Color(0xFFFAFAFA),
-    onPrimary: Color(0xFF09090B),
-    softRedBg: Color(0xFF450A0A),
-    softRedBorder: Color(0xFF991B1B),
-    softRedText: Color(0xFFFECACA),
-  );
+    if (isDark) {
+      return AppColors(
+        focusAccent: focusColor,
+        background: const Color(0xFF09090B),
+        card: const Color(0xFF18181B),
+        border: const Color(0xFF27272A),
+        ring: const Color(0xFFD4D4D8),
+        foreground: const Color(0xFFFAFAFA),
+        muted: const Color(0xFFA1A1AA),
+        primary: const Color(0xFFFAFAFA),
+        onPrimary: const Color(0xFF09090B),
+        softRedBg: const Color(0xFF450A0A),
+        softRedBorder: const Color(0xFF991B1B),
+        softRedText: const Color(0xFFFECACA),
+      );
+    } else {
+      return AppColors(
+        focusAccent: focusColor,
+        background: isBeigeLight ? const Color(0xFFFDFBF7) : const Color(0xFFFAFAFA),
+        card: const Color(0xFFFFFFFF),
+        border: isBeigeLight ? const Color(0xFFEFE8DE) : const Color(0xFFE4E4E7),
+        ring: const Color(0xFF18181B),
+        foreground: const Color(0xFF09090B),
+        muted: const Color(0xFF71717A),
+        primary: const Color(0xFF18181B),
+        onPrimary: const Color(0xFFFFFFFF),
+        softRedBg: const Color(0xFFFEF2F2),
+        softRedBorder: const Color(0xFFFCA5A5),
+        softRedText: const Color(0xFF991B1B),
+      );
+    }
+  }
 }
 
 class AppDesign {

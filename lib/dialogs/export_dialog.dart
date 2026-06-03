@@ -127,7 +127,7 @@ Future<void> showExportDialog({
                     statusMessage,
                     style: AppDesign.getBodyMutedStyle(colors).copyWith(
                       color: statusMessage.contains('✅')
-                          ? AppColors.focusAccent
+                          ? colors.focusAccent
                           : Colors.redAccent,
                       fontWeight: FontWeight.w500,
                     ),
@@ -171,7 +171,7 @@ Widget _buildPathTextField(
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput),
-        borderSide: const BorderSide(color: AppColors.focusAccent),
+        borderSide: BorderSide(color: colors.focusAccent),
       ),
     ),
   );

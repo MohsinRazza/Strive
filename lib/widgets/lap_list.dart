@@ -11,6 +11,8 @@ class LapList extends StatelessWidget {
   final DateTime activeDay;
   final List<StudySession> daySessions;
   final int secondsOnDay;
+  final bool showLaps;
+  final VoidCallback onLapsToggle;
   final String Function(int) formatDurationFriendly;
   final VoidCallback onGoToToday;
   final VoidCallback onClearDay;
@@ -21,6 +23,8 @@ class LapList extends StatelessWidget {
     required this.activeDay,
     required this.daySessions,
     required this.secondsOnDay,
+    required this.showLaps,
+    required this.onLapsToggle,
     required this.formatDurationFriendly,
     required this.onGoToToday,
     required this.onClearDay,
@@ -74,32 +78,45 @@ class LapList extends StatelessWidget {
                     icon: const Icon(Icons.today, size: 14),
                     label: const Text('Today', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                     style: TextButton.styleFrom(
-                      foregroundColor: AppColors.focusAccent,
+                      foregroundColor: colors.focusAccent,
                       backgroundColor: colors.background,
                       side: BorderSide(color: colors.border),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDesign.borderRadiusInput)),
                     ),
                   ),
-                if (daySessions.isNotEmpty)
+                if (daySessions.isNotEmpty) ...[
+                  Tooltip(
+                    message: showLaps ? 'Hide laps' : 'Show laps',
+                    child: IconButton(
+                      onPressed: onLapsToggle,
+                      icon: Icon(showLaps ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
+                      color: colors.foreground.withOpacity(0.4),
+                      padding: const EdgeInsets.only(left: 8, right: 4),
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
                   Tooltip(
                     message: 'Clear ${_isToday ? "today\'s" : DateFormat('MMM d').format(activeDay)} records',
                     child: IconButton(
                       onPressed: onClearDay,
                       icon: const Icon(Icons.delete_outline_rounded, size: 18),
                       color: colors.foreground.withOpacity(0.4),
-                      padding: EdgeInsets.zero,
+                      padding: const EdgeInsets.only(left: 4, right: 0),
                       constraints: const BoxConstraints(),
                       style: IconButton.styleFrom(hoverColor: Colors.redAccent.withOpacity(0.1)),
                     ),
                   ),
+                ],
               ],
             ),
           ],
         ),
         const SizedBox(height: 20),
         // Lap rows or empty state
-        if (daySessions.isEmpty)
+        if (!showLaps)
+          const Expanded(child: SizedBox.shrink())
+        else if (daySessions.isEmpty)
           Expanded(child: _EmptyState(colors: colors))
         else
           Expanded(child: _LapRows(colors: colors, sessions: daySessions, formatDuration: formatDurationFriendly)),
@@ -159,14 +176,14 @@ class _LapRows extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.adjust_rounded, size: 14, color: AppColors.focusAccent.withOpacity(0.7)),
+                      Icon(Icons.adjust_rounded, size: 14, color: colors.focusAccent.withOpacity(0.7)),
                       const SizedBox(width: 8),
                       Text('Lap $lapIndex', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: colors.foreground)),
                     ],
                   ),
                   Text(
                     formatDuration(session.durationSeconds),
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.focusAccent),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.focusAccent),
                   ),
                 ],
               ),

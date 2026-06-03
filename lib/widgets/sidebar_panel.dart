@@ -9,6 +9,8 @@ import 'lap_list.dart';
 class SidebarPanel extends StatelessWidget {
   final AppColors colors;
   final bool isTimerActive;
+  final bool showLaps;
+  final VoidCallback onLapsToggle;
   final List<StudySession> sessions;
   final DateTime calendarMonth;
   final DateTime? selectedDate;
@@ -25,6 +27,8 @@ class SidebarPanel extends StatelessWidget {
     super.key,
     required this.colors,
     required this.isTimerActive,
+    required this.showLaps,
+    required this.onLapsToggle,
     required this.sessions,
     required this.calendarMonth,
     required this.selectedDate,
@@ -97,11 +101,11 @@ class SidebarPanel extends StatelessWidget {
                     const SizedBox(width: 4),
                     HeatmapLegendBox(color: colors.border),
                     const SizedBox(width: 3),
-                    HeatmapLegendBox(color: AppColors.focusAccent.withOpacity(0.3)),
+                    HeatmapLegendBox(color: colors.focusAccent.withOpacity(0.3)),
                     const SizedBox(width: 3),
-                    HeatmapLegendBox(color: AppColors.focusAccent.withOpacity(0.65)),
+                    HeatmapLegendBox(color: colors.focusAccent.withOpacity(0.65)),
                     const SizedBox(width: 3),
-                    HeatmapLegendBox(color: AppColors.focusAccent),
+                    HeatmapLegendBox(color: colors.focusAccent),
                     const SizedBox(width: 4),
                     Text('More', style: AppDesign.getBodyMutedStyle(colors).copyWith(fontSize: 10)),
                   ],
@@ -118,6 +122,8 @@ class SidebarPanel extends StatelessWidget {
                     activeDay: activeDay,
                     daySessions: daySessions,
                     secondsOnDay: secondsOnDay,
+                    showLaps: showLaps,
+                    onLapsToggle: onLapsToggle,
                     formatDurationFriendly: formatDurationFriendly,
                     onGoToToday: onGoToToday,
                     onClearDay: () => onClearDay(activeDay),

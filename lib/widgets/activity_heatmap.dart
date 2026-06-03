@@ -151,9 +151,10 @@ class ActivityHeatmap extends StatelessWidget {
   Color _getHeatMapColor(int seconds, AppColors colors) {
     if (seconds <= 0) return colors.background;
     final minutes = seconds ~/ 60;
-    if (minutes < 15) return AppColors.focusAccent.withOpacity(0.30);
-    if (minutes < 45) return AppColors.focusAccent.withOpacity(0.65);
-    return AppColors.focusAccent;
+    if (minutes == 0) return colors.border;
+    if (minutes < 15) return colors.focusAccent.withOpacity(0.30);
+    if (minutes < 45) return colors.focusAccent.withOpacity(0.65);
+    return colors.focusAccent;
   }
 }
 
