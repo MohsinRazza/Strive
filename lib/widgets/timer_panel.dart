@@ -1,8 +1,10 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../design_system.dart';
 
 /// Left panel: large timer clock + start/pause/resume/stop controls.
-class TimerPanel extends StatelessWidget {
+/// Shows an animated pulsing ring background when a session is active.
+class TimerPanel extends StatefulWidget {
   final AppColors colors;
   final int secondsElapsed;
   final bool isTimerActive;
@@ -27,52 +29,137 @@ class TimerPanel extends StatelessWidget {
   });
 
   @override
+  State<TimerPanel> createState() => _TimerPanelState();
+}
+
+class _TimerPanelState extends State<TimerPanel> with TickerProviderStateMixin {
+  late final AnimationController _glowController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Radial glow breathes in/out over 3 seconds
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _glowController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            formatSeconds(secondsElapsed),
-            style: AppDesign.getTimerStyle(colors).copyWith(fontSize: 96),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isTimerActive
-                ? (isTimerPaused ? 'SESSION PAUSED' : 'FOCUS IN PROGRESS')
-                : 'READY TO FOCUS',
-            style: AppDesign.getWidgetHeaderStyle(colors).copyWith(
-              letterSpacing: 2.0,
-              color: isTimerActive && !isTimerPaused
-                  ? AppColors.focusAccent
-                  : colors.muted,
-              fontWeight: FontWeight.bold,
+    final isActive = widget.isTimerActive && !widget.isTimerPaused;
+
+    return Stack(
+      children: [
+        // ── Pulse glow (only during active focus) ───────────────
+        Positioned.fill(
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 600),
+            opacity: isActive ? 1.0 : 0.0,
+            child: AnimatedBuilder(
+              animation: _glowController,
+              builder: (context, _) {
+                return CustomPaint(
+                  painter: _FocusGlowPainter(
+                    intensity: _glowController.value,
+                    color: AppColors.focusAccent,
+                  ),
+                );
+              },
             ),
           ),
-          const SizedBox(height: 48),
-          Row(
+        ),
+
+        // ── Timer content ───────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (!isTimerActive) ...[
-                _StartButton(colors: colors, onStart: onStart),
-              ] else ...[
-                _PauseResumeButton(
-                  colors: colors,
-                  isPaused: isTimerPaused,
-                  onPause: onPause,
-                  onResume: onResume,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  widget.formatSeconds(widget.secondsElapsed),
+                  style: AppDesign.getTimerStyle(widget.colors).copyWith(fontSize: 96),
                 ),
-                const SizedBox(width: 16),
-                _StopButton(colors: colors, onStop: onStop),
-              ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                widget.isTimerActive
+                    ? (widget.isTimerPaused ? 'SESSION PAUSED' : 'FOCUS IN PROGRESS')
+                    : 'READY TO FOCUS',
+                style: AppDesign.getWidgetHeaderStyle(widget.colors).copyWith(
+                  letterSpacing: 2.0,
+                  color: isActive ? AppColors.focusAccent : widget.colors.muted,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 48),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (!widget.isTimerActive) ...[
+                    _StartButton(colors: widget.colors, onStart: widget.onStart),
+                  ] else ...[
+                    _PauseResumeButton(
+                      colors: widget.colors,
+                      isPaused: widget.isTimerPaused,
+                      onPause: widget.onPause,
+                      onResume: widget.onResume,
+                    ),
+                    const SizedBox(width: 16),
+                    _StopButton(colors: widget.colors, onStop: widget.onStop),
+                  ],
+                ],
+              ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom Painter: breathing radial glow only
+// ─────────────────────────────────────────────────────────────────────────────
+class _FocusGlowPainter extends CustomPainter {
+  final double intensity; // 0.0 → 1.0, breathes
+  final Color color;
+
+  const _FocusGlowPainter({
+    required this.intensity,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = math.max(size.width, size.height) * 0.65;
+    // Ease the intensity for a smoother breath curve
+    final eased = Curves.easeInOut.transform(intensity);
+    final opacity = (0.05 + eased * 0.10).clamp(0.0, 1.0);
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [color.withOpacity(opacity), color.withOpacity(0.0)],
+        stops: const [0.0, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: maxRadius));
+    canvas.drawCircle(center, maxRadius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_FocusGlowPainter old) => old.intensity != intensity;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Buttons
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _StartButton extends StatelessWidget {
   final AppColors colors;
@@ -115,7 +202,11 @@ class _PauseResumeButton extends StatelessWidget {
   final bool isPaused;
   final VoidCallback onPause;
   final VoidCallback onResume;
-  const _PauseResumeButton({required this.colors, required this.isPaused, required this.onPause, required this.onResume});
+  const _PauseResumeButton(
+      {required this.colors,
+      required this.isPaused,
+      required this.onPause,
+      required this.onResume});
 
   @override
   Widget build(BuildContext context) {
@@ -134,11 +225,13 @@ class _PauseResumeButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 20, color: colors.primary),
+          Icon(isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+              size: 20, color: colors.primary),
           const SizedBox(width: 8),
           Text(
             isPaused ? 'Resume' : 'Pause',
-            style: AppDesign.getLogFeedStyle(colors).copyWith(color: colors.foreground, fontWeight: FontWeight.bold),
+            style: AppDesign.getLogFeedStyle(colors)
+                .copyWith(color: colors.foreground, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -172,7 +265,8 @@ class _StopButton extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             'Stop & Save',
-            style: AppDesign.getLogFeedStyle(colors).copyWith(color: colors.softRedText, fontWeight: FontWeight.bold),
+            style: AppDesign.getLogFeedStyle(colors)
+                .copyWith(color: colors.softRedText, fontWeight: FontWeight.bold),
           ),
         ],
       ),
